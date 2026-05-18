@@ -4,7 +4,13 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
+import { Prisma } from "@/services/generated/prisma/client";
 import { prisma } from "@/services/prisma";
+
+type ReserveGiftResult = {
+  message: string;
+  status: "error" | "success";
+};
 
 export async function reserveGift(formData: FormData) {
   const parsed = z
@@ -18,7 +24,10 @@ export async function reserveGift(formData: FormData) {
     });
 
   if (!parsed.success) {
-    return;
+    return {
+      message: "Nao foi possivel identificar o presente.",
+      status: "error",
+    } satisfies ReserveGiftResult;
   }
 
   const supabase = await createClient();
@@ -27,7 +36,10 @@ export async function reserveGift(formData: FormData) {
   } = await supabase.auth.getUser();
 
   if (!user?.email) {
-    return;
+    return {
+      message: "Entre novamente para reservar este presente.",
+      status: "error",
+    } satisfies ReserveGiftResult;
   }
 
   const metadata = user.user_metadata as {
@@ -55,7 +67,10 @@ export async function reserveGift(formData: FormData) {
     });
 
     if (!gift || gift.reservation) {
-      return;
+      return {
+        message: "Este presente ja foi reservado.",
+        status: "error",
+      } satisfies ReserveGiftResult;
     }
 
     const owner = await prisma.user.upsert({
@@ -79,7 +94,27 @@ export async function reserveGift(formData: FormData) {
     });
 
     revalidatePath(`/lists/${parsed.data.shareSlug}`);
+
+    return {
+      message: "Reserva confirmada.",
+      status: "success",
+    } satisfies ReserveGiftResult;
   } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    ) {
+      return {
+        message: "Este presente ja foi reservado.",
+        status: "error",
+      } satisfies ReserveGiftResult;
+    }
+
     console.error("Unable to reserve gift", error);
+
+    return {
+      message: "Nao foi possivel reservar agora. Tente novamente.",
+      status: "error",
+    } satisfies ReserveGiftResult;
   }
 }

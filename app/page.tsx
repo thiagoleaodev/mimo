@@ -6,7 +6,6 @@ import {
   Gift,
   LogOut,
   MapPin,
-  Users,
 } from "lucide-react";
 
 import { GoogleAuthScreen } from "@/components/auth/google-auth-screen";
@@ -71,10 +70,6 @@ function AuthenticatedHome({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button render={<Link href="/users" />} variant="ghost">
-              <Users />
-              Usuarios
-            </Button>
             <form action="/auth/sign-out" method="post">
               <Button type="submit" variant="ghost">
                 <LogOut />

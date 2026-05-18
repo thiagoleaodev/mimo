@@ -22,6 +22,8 @@ type SharedEvent = Prisma.EventGetPayload<{
             owner: {
               select: {
                 email: true;
+                image: true;
+                name: true;
               };
             };
           };
@@ -97,6 +99,8 @@ export default async function SharedGiftListPage({
                 owner: {
                   select: {
                     email: true,
+                    image: true,
+                    name: true,
                   },
                 },
               },
@@ -153,6 +157,8 @@ export default async function SharedGiftListPage({
     productUrl: gift.productUrl,
     reserved: Boolean(gift.reservation),
     reservedByCurrentUser: gift.reservation?.owner.email === user.email,
+    reservedByImage: gift.reservation?.owner.image ?? null,
+    reservedByName: gift.reservation?.owner.name ?? gift.reservation?.owner.email ?? null,
     title: gift.title,
   }));
 
