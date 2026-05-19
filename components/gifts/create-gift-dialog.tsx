@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const initialState: CreateGiftState = {};
+type ExtractStore = "mercado_livre" | "amazon";
 
 function FieldError({ message }: { message?: string }) {
   if (!message) {
@@ -54,6 +55,8 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
     null
   );
   const [extractProductUrl, setExtractProductUrl] = useState("");
+  const [extractStore, setExtractStore] =
+    useState<ExtractStore>("mercado_livre");
   const [isExtracting, setIsExtracting] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const { formAction, isPending, state } = useCreateGiftAction();
@@ -81,7 +84,7 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
 
   function handleExtractProduct() {
     const formData = new FormData();
-    formData.set("store", "mercado_livre");
+    formData.set("store", extractStore);
     formData.set("productUrl", extractProductUrl);
     setExtractState(null);
     setIsExtracting(true);
@@ -143,10 +146,14 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
                   className={cn(
                     "h-8 w-full rounded-lg border border-input bg-background px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
                   )}
-                  defaultValue="mercado_livre"
                   id="gift-extract-store"
+                  onChange={(event) =>
+                    setExtractStore(event.target.value as ExtractStore)
+                  }
+                  value={extractStore}
                 >
                   <option value="mercado_livre">Mercado Livre</option>
+                  <option value="amazon">Amazon</option>
                 </select>
               </div>
 
@@ -156,7 +163,11 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
                   aria-invalid={Boolean(extractState?.errors?.productUrl)}
                   id="gift-extract-url"
                   onChange={(event) => setExtractProductUrl(event.target.value)}
-                  placeholder="https://www.mercadolivre.com.br/produto"
+                  placeholder={
+                    extractStore === "amazon"
+                      ? "https://www.amazon.com.br/dp/..."
+                      : "https://www.mercadolivre.com.br/produto"
+                  }
                   type="url"
                   value={extractProductUrl}
                 />
@@ -241,7 +252,7 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
                 aria-invalid={Boolean(state.errors?.productUrl)}
                 id="gift-product-url"
                 name="productUrl"
-                placeholder="https://produto.mercadolivre.com.br/MLB..."
+                placeholder="Mercado Livre ou Amazon"
                 type="url"
               />
               <FieldError message={state.errors?.productUrl} />

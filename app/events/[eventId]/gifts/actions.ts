@@ -24,17 +24,17 @@ const optionalUrl = z
     }
   }, "Informe uma URL valida.");
 
-const optionalMercadoLivreUrl = optionalUrl.refine((value) => {
+const optionalSupportedProductUrl = optionalUrl.refine((value) => {
   if (!value) {
     return true;
   }
 
   try {
-    return isMercadoLivreUrl(new URL(value));
+    return Boolean(getProductStoreFromUrl(new URL(value)));
   } catch {
     return false;
   }
-}, "Informe um link do Mercado Livre.");
+}, "Informe um link do Mercado Livre ou da Amazon.");
 
 const giftSchema = z.object({
   description: z
@@ -63,7 +63,7 @@ const giftSchema = z.object({
 
       return Number(value.replace(",", ".")) <= 999999.99;
     }, "Informe um valor menor."),
-  productUrl: optionalMercadoLivreUrl,
+  productUrl: optionalSupportedProductUrl,
   title: z
     .string()
     .trim()
@@ -76,7 +76,7 @@ const productExtractionSchema = z.object({
     .string()
     .trim()
     .url("Informe um link valido do produto."),
-  store: z.literal("mercado_livre", {
+  store: z.enum(["mercado_livre", "amazon"], {
     error: "Escolha uma loja valida.",
   }),
 });
@@ -123,10 +123,56 @@ function isMercadoLivreUrl(url: URL) {
   );
 }
 
+function isAmazonUrl(url: URL) {
+  const hostname = url.hostname.toLowerCase();
+  const amazonDomains = [
+    "amazon.com",
+    "amazon.com.br",
+    "amazon.co.uk",
+    "amazon.ca",
+    "amazon.de",
+    "amazon.es",
+    "amazon.fr",
+    "amazon.it",
+    "amazon.com.mx",
+    "amazon.com.au",
+    "amazon.co.jp",
+    "amazon.in",
+  ];
+
+  return (
+    hostname === "amzn.to" ||
+    amazonDomains.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`)
+    )
+  );
+}
+
+function getProductStoreFromUrl(url: URL) {
+  if (isMercadoLivreUrl(url)) {
+    return "mercado_livre" as const;
+  }
+
+  if (isAmazonUrl(url)) {
+    return "amazon" as const;
+  }
+
+  return null;
+}
+
 function getMercadoLivreId(value: string) {
   const match = value.match(/(^|[^a-z0-9])(MLB)-?(\d{6,})([^a-z0-9]|$)/i);
 
   return match ? `MLB${match[3]}` : null;
+}
+
+function getAmazonAsin(url: URL) {
+  const pathname = decodeURIComponent(url.pathname);
+  const asinMatch =
+    pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?]|$)/i) ??
+    pathname.match(/\/(?:exec\/obidos\/ASIN)\/([A-Z0-9]{10})(?:[/?]|$)/i);
+
+  return asinMatch?.[1]?.toUpperCase();
 }
 
 function normalizeExtractedUrl(value: unknown) {
@@ -155,6 +201,46 @@ function normalizeExtractedPrice(value: unknown) {
   return price.toFixed(2);
 }
 
+function normalizeCurrencyPrice(value: unknown) {
+  if (typeof value !== "number" && typeof value !== "string") {
+    return undefined;
+  }
+
+  if (typeof value === "number") {
+    return normalizeExtractedPrice(value);
+  }
+
+  const match = value
+    .replace(/&nbsp;|\u00a0/g, " ")
+    .match(/\d{1,3}(?:(?:[.,]\d{3})+)?(?:[.,]\d{2})|\d+(?:[.,]\d{2})?/);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const rawValue = match[0];
+  const lastComma = rawValue.lastIndexOf(",");
+  const lastDot = rawValue.lastIndexOf(".");
+  let normalizedValue = rawValue.replace(/[^\d.,]/g, "");
+
+  if (lastComma > -1 && lastDot > -1) {
+    normalizedValue =
+      lastComma > lastDot
+        ? normalizedValue.replace(/\./g, "").replace(",", ".")
+        : normalizedValue.replace(/,/g, "");
+  } else if (lastComma > -1) {
+    normalizedValue = /,\d{2}$/.test(normalizedValue)
+      ? normalizedValue.replace(",", ".")
+      : normalizedValue.replace(/,/g, "");
+  } else if (/\.\d{3}$/.test(normalizedValue)) {
+    normalizedValue = normalizedValue.replace(/\./g, "");
+  } else if ((normalizedValue.match(/\./g) ?? []).length > 1) {
+    normalizedValue = normalizedValue.replace(/\./g, "");
+  }
+
+  return normalizeExtractedPrice(normalizedValue);
+}
+
 function normalizeExtractedTitle(value: unknown) {
   if (typeof value !== "string") {
     return undefined;
@@ -170,6 +256,10 @@ function normalizeExtractedTitle(value: unknown) {
 
 function getMercadoLivreAffiliateId() {
   return process.env.MERCADO_LIVRE_AFFILIATE_ID?.trim();
+}
+
+function getAmazonAffiliateId() {
+  return process.env.AMAZON_AFFILIATE_ID?.trim();
 }
 
 function buildMercadoLivreAffiliateUrl(value: string) {
@@ -188,6 +278,62 @@ function buildMercadoLivreAffiliateUrl(value: string) {
   url.searchParams.set("matt_word", affiliateId);
 
   return url.toString();
+}
+
+function buildAmazonAffiliateUrl(value: string) {
+  const url = new URL(value);
+
+  if (!isAmazonUrl(url)) {
+    return null;
+  }
+
+  const affiliateId = getAmazonAffiliateId();
+
+  if (!affiliateId) {
+    return null;
+  }
+
+  const asin = getAmazonAsin(url);
+
+  if (asin && url.hostname.toLowerCase() !== "amzn.to") {
+    const affiliateUrl = new URL(`${url.origin}/dp/${asin}`);
+    affiliateUrl.searchParams.set("tag", affiliateId);
+
+    return affiliateUrl.toString();
+  }
+
+  url.searchParams.set("tag", affiliateId);
+
+  return url.toString();
+}
+
+function buildAffiliateProductUrl(value: string) {
+  const url = new URL(value);
+  const store = getProductStoreFromUrl(url);
+
+  if (store === "mercado_livre") {
+    return buildMercadoLivreAffiliateUrl(value);
+  }
+
+  if (store === "amazon") {
+    return buildAmazonAffiliateUrl(value);
+  }
+
+  return null;
+}
+
+function getAffiliateEnvName(value: string) {
+  const store = getProductStoreFromUrl(new URL(value));
+
+  if (store === "mercado_livre") {
+    return "MERCADO_LIVRE_AFFILIATE_ID";
+  }
+
+  if (store === "amazon") {
+    return "AMAZON_AFFILIATE_ID";
+  }
+
+  return "a env de afiliado";
 }
 
 function parseSetCookieHeader(setCookieHeader: string | null) {
@@ -248,6 +394,64 @@ function getHtmlMetaContent(html: string, property: string) {
     )
   );
 
+  if (metaMatch?.[1]) {
+    return metaMatch[1].trim();
+  }
+
+  const reversedMetaMatch = html.match(
+    new RegExp(
+      `<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escapedProperty}["'][^>]*>`,
+      "i"
+    )
+  );
+
+  return reversedMetaMatch?.[1]?.trim();
+}
+
+function decodeHtmlEntities(value: string) {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d+);/g, (_match, code: string) =>
+      String.fromCharCode(Number(code))
+    );
+}
+
+function stripHtml(value: string) {
+  return decodeHtmlEntities(value)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getHtmlElementTextById(html: string, id: string) {
+  const escapedId = id.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const elementMatch = html.match(
+    new RegExp(`<[^>]+id=["']${escapedId}["'][^>]*>([\\s\\S]*?)<\\/[^>]+>`, "i")
+  );
+
+  return elementMatch ? stripHtml(elementMatch[1]) : undefined;
+}
+
+function getHtmlTitle(html: string) {
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+
+  return titleMatch ? stripHtml(titleMatch[1]) : undefined;
+}
+
+function getHtmlMetaItemPropContent(html: string, itemProp: string) {
+  const escapedItemProp = itemProp.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const metaMatch = html.match(
+    new RegExp(
+      `<meta[^>]+itemprop=["']${escapedItemProp}["'][^>]+content=["']([^"']+)["'][^>]*>`,
+      "i"
+    )
+  );
+
   return metaMatch?.[1]?.trim();
 }
 
@@ -256,7 +460,19 @@ function getHtmlJsonLdPrice(html: string) {
     /"offers"\s*:\s*\{[^}]*"price"\s*:\s*(?:"([^"]+)"|(\d+(?:\.\d+)?))/i
   );
 
-  return normalizeExtractedPrice(offerPriceMatch?.[1] ?? offerPriceMatch?.[2]);
+  return (
+    normalizeExtractedPrice(offerPriceMatch?.[1] ?? offerPriceMatch?.[2]) ??
+    normalizeCurrencyPrice(offerPriceMatch?.[1] ?? offerPriceMatch?.[2])
+  );
+}
+
+function getHtmlJsonLdString(html: string, property: string) {
+  const escapedProperty = property.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const match = html.match(
+    new RegExp(`"${escapedProperty}"\\s*:\\s*"([^"]+)"`, "i")
+  );
+
+  return match?.[1]?.replace(/\\\//g, "/").trim();
 }
 
 async function fetchMercadoLivreHtml(url: URL) {
@@ -441,6 +657,155 @@ async function extractMercadoLivreProduct(productUrl: string) {
   } satisfies ExtractProductState;
 }
 
+async function fetchAmazonHtml(url: URL) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    },
+    redirect: "follow",
+  });
+
+  return {
+    html: await response.text(),
+    url: response.url || url.toString(),
+  };
+}
+
+function normalizeAmazonTitle(value: unknown) {
+  const title = normalizeExtractedTitle(value);
+
+  if (!title) {
+    return undefined;
+  }
+
+  return title
+    .replace(/^Amazon(?:\.com(?:\.br)?|)\s*:\s*/i, "")
+    .replace(/\s*:\s*Amazon(?:\.com(?:\.br)?|).*$/i, "")
+    .trim();
+}
+
+function getAmazonPrice(html: string) {
+  const candidates = [
+    getHtmlJsonLdPrice(html),
+    normalizeCurrencyPrice(getHtmlMetaItemPropContent(html, "price")),
+    normalizeCurrencyPrice(getHtmlElementTextById(html, "priceblock_ourprice")),
+    normalizeCurrencyPrice(getHtmlElementTextById(html, "priceblock_dealprice")),
+    normalizeCurrencyPrice(getHtmlElementTextById(html, "priceblock_saleprice")),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const offscreenPrices = Array.from(
+    html.matchAll(
+      /<span[^>]+class=["'][^"']*a-offscreen[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi
+    )
+  );
+
+  for (const match of offscreenPrices) {
+    const price = normalizeCurrencyPrice(stripHtml(match[1]));
+
+    if (price) {
+      return price;
+    }
+  }
+
+  return undefined;
+}
+
+function getAmazonImageUrl(html: string) {
+  const jsonLdImage = getHtmlJsonLdString(html, "image");
+  const oldHiresMatch = html.match(/data-old-hires=["']([^"']+)["']/i);
+  const dynamicImageMatch = html.match(/data-a-dynamic-image=["']({[^"']+})["']/i);
+  const hiResMatch = html.match(/"hiRes"\s*:\s*"([^"]+)"/i);
+
+  if (jsonLdImage) {
+    return normalizeExtractedUrl(jsonLdImage);
+  }
+
+  if (oldHiresMatch?.[1]) {
+    return normalizeExtractedUrl(oldHiresMatch[1]);
+  }
+
+  if (dynamicImageMatch?.[1]) {
+    const firstImageMatch = decodeHtmlEntities(dynamicImageMatch[1]).match(
+      /"([^"]+)"/
+    );
+
+    if (firstImageMatch?.[1]) {
+      return normalizeExtractedUrl(firstImageMatch[1]);
+    }
+  }
+
+  if (hiResMatch?.[1]) {
+    return normalizeExtractedUrl(hiResMatch[1].replace(/\\\//g, "/"));
+  }
+
+  return normalizeExtractedUrl(getHtmlMetaContent(html, "og:image"));
+}
+
+async function extractAmazonProduct(productUrl: string) {
+  const originalUrl = new URL(productUrl);
+
+  if (!isAmazonUrl(originalUrl)) {
+    return {
+      message: "Informe um link da Amazon.",
+      success: false,
+    } satisfies ExtractProductState;
+  }
+
+  let resolvedUrl = originalUrl.toString();
+  let html = "";
+
+  try {
+    const page = await fetchAmazonHtml(originalUrl);
+
+    resolvedUrl = page.url;
+    html = page.html;
+  } catch {
+    // The affiliate URL can still be generated from the original product URL.
+  }
+
+  if (!isAmazonUrl(new URL(resolvedUrl))) {
+    return {
+      message: "Informe um link da Amazon.",
+      success: false,
+    } satisfies ExtractProductState;
+  }
+
+  const title =
+    normalizeAmazonTitle(getHtmlElementTextById(html, "productTitle")) ??
+    normalizeAmazonTitle(getHtmlMetaContent(html, "og:title")) ??
+    normalizeAmazonTitle(getHtmlJsonLdString(html, "name")) ??
+    normalizeAmazonTitle(getHtmlTitle(html));
+
+  if (!title) {
+    return {
+      message: "Nao foi possivel extrair os dados desse produto.",
+      success: false,
+    } satisfies ExtractProductState;
+  }
+
+  return {
+    data: {
+      imageUrl: getAmazonImageUrl(html),
+      price: getAmazonPrice(html),
+      productUrl: buildAmazonAffiliateUrl(resolvedUrl) ?? resolvedUrl,
+      title,
+    },
+    message: "Dados preenchidos. Revise antes de salvar.",
+    success: true,
+  } satisfies ExtractProductState;
+}
+
 export async function extractProduct(
   formData: FormData
 ): Promise<ExtractProductState> {
@@ -459,6 +824,10 @@ export async function extractProduct(
   }
 
   try {
+    if (parsed.data.store === "amazon") {
+      return await extractAmazonProduct(parsed.data.productUrl);
+    }
+
     return await extractMercadoLivreProduct(parsed.data.productUrl);
   } catch (error) {
     console.error("Unable to extract product", error);
@@ -525,13 +894,15 @@ export async function createGift(
 
     const productUrl = emptyToUndefined(parsed.data.productUrl);
     const affiliateProductUrl = productUrl
-      ? buildMercadoLivreAffiliateUrl(productUrl)
+      ? buildAffiliateProductUrl(productUrl)
       : undefined;
 
     if (productUrl && !affiliateProductUrl) {
+      const envName = getAffiliateEnvName(productUrl);
+
       return {
         errors: {
-          productUrl: "Configure MERCADO_LIVRE_AFFILIATE_ID para salvar o link.",
+          productUrl: `Configure ${envName} para salvar o link.`,
         },
         message: "Nao foi possivel gerar o link de afiliado.",
         success: false,
