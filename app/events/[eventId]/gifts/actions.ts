@@ -34,7 +34,7 @@ const optionalSupportedProductUrl = optionalUrl.refine((value) => {
   } catch {
     return false;
   }
-}, "Informe um link do Mercado Livre ou da Amazon.");
+}, "Informe um link do Mercado Livre, Amazon ou Magalu.");
 
 const giftSchema = z.object({
   description: z
@@ -76,7 +76,7 @@ const productExtractionSchema = z.object({
     .string()
     .trim()
     .url("Informe um link valido do produto."),
-  store: z.enum(["mercado_livre", "amazon"], {
+  store: z.enum(["mercado_livre", "amazon", "magalu"], {
     error: "Escolha uma loja valida.",
   }),
 });
@@ -148,6 +148,19 @@ function isAmazonUrl(url: URL) {
   );
 }
 
+function isMagaluUrl(url: URL) {
+  const hostname = url.hostname.toLowerCase();
+
+  return (
+    hostname === "magazinevoce.com.br" ||
+    hostname.endsWith(".magazinevoce.com.br") ||
+    hostname === "magazineluiza.com.br" ||
+    hostname.endsWith(".magazineluiza.com.br") ||
+    hostname === "magalu.com" ||
+    hostname.endsWith(".magalu.com")
+  );
+}
+
 function getProductStoreFromUrl(url: URL) {
   if (isMercadoLivreUrl(url)) {
     return "mercado_livre" as const;
@@ -155,6 +168,10 @@ function getProductStoreFromUrl(url: URL) {
 
   if (isAmazonUrl(url)) {
     return "amazon" as const;
+  }
+
+  if (isMagaluUrl(url)) {
+    return "magalu" as const;
   }
 
   return null;
@@ -262,6 +279,10 @@ function getAmazonAffiliateId() {
   return process.env.AMAZON_AFFILIATE_ID?.trim();
 }
 
+function getMagaluAffiliateId() {
+  return process.env.MAGALU_AFFILIATE_ID?.trim();
+}
+
 function buildMercadoLivreAffiliateUrl(value: string) {
   const url = new URL(value);
 
@@ -278,6 +299,17 @@ function buildMercadoLivreAffiliateUrl(value: string) {
   url.searchParams.set("matt_word", affiliateId);
 
   return url.toString();
+}
+
+function normalizeMagaluAffiliateSlug(value: string) {
+  try {
+    const url = new URL(value);
+    const [slug] = url.pathname.split("/").filter(Boolean);
+
+    return slug;
+  } catch {
+    return value.replace(/^\/+|\/+$/g, "");
+  }
 }
 
 function buildAmazonAffiliateUrl(value: string) {
@@ -307,6 +339,44 @@ function buildAmazonAffiliateUrl(value: string) {
   return url.toString();
 }
 
+function buildMagaluAffiliateUrl(value: string) {
+  const url = new URL(value);
+
+  if (!isMagaluUrl(url)) {
+    return null;
+  }
+
+  const affiliateId = getMagaluAffiliateId();
+
+  if (!affiliateId) {
+    return null;
+  }
+
+  const affiliateSlug = normalizeMagaluAffiliateSlug(affiliateId);
+
+  if (!affiliateSlug) {
+    return null;
+  }
+
+  const pathSegments = url.pathname.split("/").filter(Boolean);
+  const isMagazineVoceUrl = url.hostname.toLowerCase().includes("magazinevoce");
+  const productPathSegments = isMagazineVoceUrl
+    ? pathSegments.slice(1)
+    : pathSegments;
+  const productPath = productPathSegments.join("/");
+  const affiliateUrl = new URL(
+    `https://www.magazinevoce.com.br/${affiliateSlug}/${
+      productPath ? `${productPath}/` : ""
+    }`
+  );
+
+  for (const [key, parameterValue] of url.searchParams.entries()) {
+    affiliateUrl.searchParams.set(key, parameterValue);
+  }
+
+  return affiliateUrl.toString();
+}
+
 function buildAffiliateProductUrl(value: string) {
   const url = new URL(value);
   const store = getProductStoreFromUrl(url);
@@ -317,6 +387,10 @@ function buildAffiliateProductUrl(value: string) {
 
   if (store === "amazon") {
     return buildAmazonAffiliateUrl(value);
+  }
+
+  if (store === "magalu") {
+    return buildMagaluAffiliateUrl(value);
   }
 
   return null;
@@ -331,6 +405,10 @@ function getAffiliateEnvName(value: string) {
 
   if (store === "amazon") {
     return "AMAZON_AFFILIATE_ID";
+  }
+
+  if (store === "magalu") {
+    return "MAGALU_AFFILIATE_ID";
   }
 
   return "a env de afiliado";
@@ -441,6 +519,15 @@ function getHtmlTitle(html: string) {
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
 
   return titleMatch ? stripHtml(titleMatch[1]) : undefined;
+}
+
+function getFirstHtmlElementText(html: string, tagName: string) {
+  const escapedTagName = tagName.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const elementMatch = html.match(
+    new RegExp(`<${escapedTagName}[^>]*>([\\s\\S]*?)<\\/${escapedTagName}>`, "i")
+  );
+
+  return elementMatch ? stripHtml(elementMatch[1]) : undefined;
 }
 
 function getHtmlMetaItemPropContent(html: string, itemProp: string) {
@@ -806,6 +893,147 @@ async function extractAmazonProduct(productUrl: string) {
   } satisfies ExtractProductState;
 }
 
+async function fetchMagaluHtml(url: URL) {
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    },
+    redirect: "follow",
+  });
+
+  return {
+    html: await response.text(),
+    url: response.url || url.toString(),
+  };
+}
+
+function normalizeMagaluTitle(value: unknown) {
+  const title = normalizeExtractedTitle(value);
+
+  if (!title) {
+    return undefined;
+  }
+
+  const normalizedTitle = title
+    .replace(/\s*[-|]\s*(?:Magalu|Magazine Luiza|Magazine Você).*$/i, "")
+    .trim();
+
+  const searchableTitle = normalizedTitle
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  if (
+    searchableTitle.includes("nao e possivel acessar a pagina") ||
+    searchableTitle.includes("pagina nao encontrada")
+  ) {
+    return undefined;
+  }
+
+  return normalizedTitle.length >= 2 ? normalizedTitle : undefined;
+}
+
+function getMagaluPrice(html: string) {
+  const candidates = [
+    getHtmlJsonLdPrice(html),
+    normalizeCurrencyPrice(getHtmlMetaContent(html, "product:price:amount")),
+    normalizeCurrencyPrice(getHtmlMetaItemPropContent(html, "price")),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const priceMatches = Array.from(html.matchAll(/R\$\s*[\d.,]+/gi));
+
+  for (const match of priceMatches) {
+    const price = normalizeCurrencyPrice(match[0]);
+
+    if (price) {
+      return price;
+    }
+  }
+
+  return undefined;
+}
+
+function getMagaluImageUrl(html: string) {
+  return (
+    normalizeExtractedUrl(getHtmlMetaContent(html, "og:image")) ??
+    normalizeExtractedUrl(getHtmlJsonLdString(html, "image"))
+  );
+}
+
+async function extractMagaluProduct(productUrl: string) {
+  const originalUrl = new URL(productUrl);
+
+  if (!isMagaluUrl(originalUrl)) {
+    return {
+      message: "Informe um link do Magalu.",
+      success: false,
+    } satisfies ExtractProductState;
+  }
+
+  const affiliateProductUrl = buildMagaluAffiliateUrl(originalUrl.toString());
+  const fetchTargets = Array.from(
+    new Set([affiliateProductUrl, originalUrl.toString()].filter(Boolean))
+  ) as string[];
+
+  for (const target of fetchTargets) {
+    let resolvedUrl = target;
+    let html = "";
+
+    try {
+      const page = await fetchMagaluHtml(new URL(target));
+
+      resolvedUrl = page.url;
+      html = page.html;
+    } catch {
+      continue;
+    }
+
+    if (!isMagaluUrl(new URL(resolvedUrl))) {
+      continue;
+    }
+
+    const title =
+      normalizeMagaluTitle(getHtmlMetaContent(html, "og:title")) ??
+      normalizeMagaluTitle(getHtmlJsonLdString(html, "name")) ??
+      normalizeMagaluTitle(getFirstHtmlElementText(html, "h1")) ??
+      normalizeMagaluTitle(getHtmlTitle(html));
+
+    if (!title) {
+      continue;
+    }
+
+    return {
+      data: {
+        imageUrl: getMagaluImageUrl(html),
+        price: getMagaluPrice(html),
+        productUrl:
+          buildMagaluAffiliateUrl(resolvedUrl) ??
+          affiliateProductUrl ??
+          resolvedUrl,
+        title,
+      },
+      message: "Dados preenchidos. Revise antes de salvar.",
+      success: true,
+    } satisfies ExtractProductState;
+  }
+
+  return {
+    message: "Nao foi possivel extrair os dados desse produto.",
+    success: false,
+  } satisfies ExtractProductState;
+}
+
 export async function extractProduct(
   formData: FormData
 ): Promise<ExtractProductState> {
@@ -826,6 +1054,10 @@ export async function extractProduct(
   try {
     if (parsed.data.store === "amazon") {
       return await extractAmazonProduct(parsed.data.productUrl);
+    }
+
+    if (parsed.data.store === "magalu") {
+      return await extractMagaluProduct(parsed.data.productUrl);
     }
 
     return await extractMercadoLivreProduct(parsed.data.productUrl);

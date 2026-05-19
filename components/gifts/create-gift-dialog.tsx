@@ -30,7 +30,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 const initialState: CreateGiftState = {};
-type ExtractStore = "mercado_livre" | "amazon";
+type ExtractStore = "mercado_livre" | "amazon" | "magalu";
+
+function getExtractPlaceholder(store: ExtractStore) {
+  if (store === "amazon") {
+    return "https://www.amazon.com.br/dp/...";
+  }
+
+  if (store === "magalu") {
+    return "https://www.magazineluiza.com.br/produto/p/...";
+  }
+
+  return "https://www.mercadolivre.com.br/produto";
+}
 
 function FieldError({ message }: { message?: string }) {
   if (!message) {
@@ -154,6 +166,7 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
                 >
                   <option value="mercado_livre">Mercado Livre</option>
                   <option value="amazon">Amazon</option>
+                  <option value="magalu">Magazine Luiza</option>
                 </select>
               </div>
 
@@ -163,11 +176,7 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
                   aria-invalid={Boolean(extractState?.errors?.productUrl)}
                   id="gift-extract-url"
                   onChange={(event) => setExtractProductUrl(event.target.value)}
-                  placeholder={
-                    extractStore === "amazon"
-                      ? "https://www.amazon.com.br/dp/..."
-                      : "https://www.mercadolivre.com.br/produto"
-                  }
+                  placeholder={getExtractPlaceholder(extractStore)}
                   type="url"
                   value={extractProductUrl}
                 />
@@ -252,7 +261,7 @@ export function CreateGiftDialog({ eventId }: { eventId: string }) {
                 aria-invalid={Boolean(state.errors?.productUrl)}
                 id="gift-product-url"
                 name="productUrl"
-                placeholder="Mercado Livre ou Amazon"
+                placeholder="Mercado Livre, Amazon ou Magalu"
                 type="url"
               />
               <FieldError message={state.errors?.productUrl} />
