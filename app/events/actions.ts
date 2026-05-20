@@ -5,6 +5,10 @@ import { z } from "zod";
 
 import { prisma } from "@/services/prisma";
 import { createClient } from "@/lib/supabase/server";
+import {
+  backgroundTypeOptions,
+  eventThemeOptions,
+} from "@/lib/event-theme";
 
 const eventSchema = z.object({
   title: z
@@ -34,8 +38,52 @@ const eventSchema = z.object({
   }),
 });
 
+const hexColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, "Informe uma cor valida.");
+
+const optionalUrl = z
+  .string()
+  .trim()
+  .optional()
+  .refine((value) => {
+    if (!value) {
+      return true;
+    }
+
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Informe uma URL valida.");
+
+const eventThemeSchema = z.object({
+  accentColor: hexColorSchema,
+  backgroundType: z.enum(
+    backgroundTypeOptions.map((option) => option.value),
+    { error: "Escolha um estilo de fundo valido." }
+  ),
+  backgroundValue: hexColorSchema,
+  coverImageUrl: optionalUrl,
+  eventId: z.string().min(1, "Evento invalido."),
+  primaryColor: hexColorSchema,
+  secondaryColor: hexColorSchema,
+  theme: z.enum(eventThemeOptions.map((option) => option.value), {
+    error: "Escolha um tema valido.",
+  }),
+});
+
 export type CreateEventState = {
   errors?: Partial<Record<keyof z.infer<typeof eventSchema>, string>>;
+  message?: string;
+  success?: boolean;
+};
+
+export type UpdateEventThemeState = {
+  errors?: Partial<Record<keyof z.infer<typeof eventThemeSchema>, string>>;
   message?: string;
   success?: boolean;
 };
@@ -122,4 +170,104 @@ export async function createEvent(
     message: "Evento criado com sucesso.",
     success: true,
   };
+}
+
+export async function updateEventTheme(
+  _previousState: UpdateEventThemeState,
+  formData: FormData
+): Promise<UpdateEventThemeState> {
+  const parsed = eventThemeSchema.safeParse({
+    accentColor: formData.get("accentColor"),
+    backgroundType: formData.get("backgroundType"),
+    backgroundValue: formData.get("backgroundValue"),
+    coverImageUrl: formData.get("coverImageUrl"),
+    eventId: formData.get("eventId"),
+    primaryColor: formData.get("primaryColor"),
+    secondaryColor: formData.get("secondaryColor"),
+    theme: formData.get("theme"),
+  });
+
+  if (!parsed.success) {
+    return {
+      errors: z.flattenError(parsed.error)
+        .fieldErrors as UpdateEventThemeState["errors"],
+      message: "Revise os campos destacados.",
+      success: false,
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return {
+      message: "Faca login com Google para personalizar o evento.",
+      success: false,
+    };
+  }
+
+  try {
+    const event = await prisma.event.findFirst({
+      where: {
+        id: parsed.data.eventId,
+        owner: {
+          email: user.email,
+        },
+      },
+      select: {
+        id: true,
+        shareSlug: true,
+      },
+    });
+
+    if (!event) {
+      return {
+        message: "Voce nao tem permissao para editar este evento.",
+        success: false,
+      };
+    }
+
+    await prisma.eventThemeConfig.upsert({
+      where: {
+        eventId: event.id,
+      },
+      create: {
+        accentColor: parsed.data.accentColor,
+        backgroundType: parsed.data.backgroundType,
+        backgroundValue: parsed.data.backgroundValue,
+        coverImageUrl: emptyToUndefined(parsed.data.coverImageUrl),
+        eventId: event.id,
+        primaryColor: parsed.data.primaryColor,
+        secondaryColor: parsed.data.secondaryColor,
+        theme: parsed.data.theme,
+      },
+      update: {
+        accentColor: parsed.data.accentColor,
+        backgroundType: parsed.data.backgroundType,
+        backgroundValue: parsed.data.backgroundValue,
+        coverImageUrl: emptyToUndefined(parsed.data.coverImageUrl),
+        primaryColor: parsed.data.primaryColor,
+        secondaryColor: parsed.data.secondaryColor,
+        theme: parsed.data.theme,
+      },
+    });
+
+    revalidatePath(`/events/${event.id}/gifts`);
+    revalidatePath(`/lists/${event.shareSlug}`);
+
+    return {
+      message: "Identidade visual salva.",
+      success: true,
+    };
+  } catch (error) {
+    console.error("Unable to update event theme", error);
+
+    return {
+      message:
+        "Nao foi possivel conectar ao banco de dados. Verifique a DATABASE_URL.",
+      success: false,
+    };
+  }
 }

@@ -9,6 +9,8 @@ import {
   Unlock,
 } from "lucide-react";
 
+import { EventThemeDialog } from "@/components/events/event-theme-dialog";
+import { EventThemePreview } from "@/components/events/event-theme-preview";
 import { ShareListDialog } from "@/components/events/share-list-dialog";
 import { CreateGiftDialog } from "@/components/gifts/create-gift-dialog";
 import { DeleteGiftDialog } from "@/components/gifts/delete-gift-dialog";
@@ -37,6 +39,7 @@ type EventWithGifts = Prisma.EventGetPayload<{
         name: true;
       };
     };
+    themeConfig: true;
   };
 }>;
 
@@ -93,6 +96,7 @@ export default async function GiftListPage({
           },
           orderBy: { createdAt: "desc" },
         },
+        themeConfig: true,
         owner: {
           select: {
             email: true,
@@ -164,29 +168,43 @@ export default async function GiftListPage({
             Eventos
           </Button>
 
-          {isOwner ? <CreateGiftDialog eventId={event.id} /> : null}
+          {isOwner ? (
+            <div className="flex flex-wrap gap-2">
+              <EventThemeDialog
+                eventId={event.id}
+                themeConfig={event.themeConfig}
+              />
+              <CreateGiftDialog eventId={event.id} />
+            </div>
+          ) : null}
         </header>
 
         <section className="grid gap-4 md:grid-cols-[1.4fr_0.8fr]">
           <Card className="rounded-lg">
             <CardHeader>
-              <CardTitle className="text-2xl">{event.title}</CardTitle>
-              <CardDescription>
-                {event.description ??
-                  "Lista de presentes compartilhada para este evento."}
-              </CardDescription>
+              <div className="grid gap-4 sm:grid-cols-[1fr_9rem] sm:items-start">
+                <div className="min-w-0">
+                  <CardTitle className="text-2xl">{event.title}</CardTitle>
+                  <CardDescription className="mt-2">
+                    {event.description ??
+                      "Lista de presentes compartilhada para este evento."}
+                  </CardDescription>
+                </div>
+                <EventThemePreview
+                  className="h-24 sm:w-36"
+                  themeConfig={event.themeConfig}
+                />
+              </div>
             </CardHeader>
-            <CardContent className="grid gap-2 text-sm text-muted-foreground">
+            <CardContent className="grid gap-2 text-sm text-foreground">
               <span className="inline-flex items-center gap-2">
                 <CalendarDays className="size-4" />
                 {formatEventDate(event.date)}
               </span>
-              {event.location ? (
-                <span className="inline-flex items-center gap-2">
-                  <MapPin className="size-4" />
-                  {event.location}
-                </span>
-              ) : null}
+              <span className="inline-flex items-center gap-2">
+                <MapPin className="size-4" />
+                {event.location ?? "Local a definir"}
+              </span>
             </CardContent>
           </Card>
 

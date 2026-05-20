@@ -10,6 +10,7 @@ import {
 
 import { GoogleAuthScreen } from "@/components/auth/google-auth-screen";
 import { CreateEventDialog } from "@/components/events/create-event-dialog";
+import { EventThemePreview } from "@/components/events/event-theme-preview";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -20,7 +21,13 @@ import {
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/services/prisma";
-import type { Event as MimoEvent } from "@/types/prisma";
+import type { Prisma } from "@/services/generated/prisma/client";
+
+type RecentEvent = Prisma.EventGetPayload<{
+  include: {
+    themeConfig: true;
+  };
+}>;
 
 function getUserDisplay(user: User) {
   const metadata = user.user_metadata as {
@@ -53,7 +60,7 @@ function AuthenticatedHome({
   user,
 }: {
   databaseError?: boolean;
-  events: MimoEvent[];
+  events: RecentEvent[];
   user: User;
 }) {
   const { avatarUrl, email, name } = getUserDisplay(user);
@@ -142,10 +149,11 @@ function AuthenticatedHome({
               <div className="divide-y rounded-lg border">
                 {events.map((event) => (
                   <Link
-                    className="grid gap-3 p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:grid-cols-[1fr_auto] sm:items-center"
+                    className="grid gap-3 p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:grid-cols-[auto_1fr_auto] sm:items-center"
                     href={`/events/${event.id}/gifts`}
                     key={event.id}
                   >
+                    <EventThemePreview themeConfig={event.themeConfig} />
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="truncate text-sm font-medium">
@@ -205,7 +213,7 @@ export default async function Home() {
   }
 
   let databaseError = false;
-  let events: MimoEvent[] = [];
+  let events: RecentEvent[] = [];
 
   if (user.email) {
     try {
@@ -213,6 +221,9 @@ export default async function Home() {
         where: { email: user.email },
         include: {
           events: {
+            include: {
+              themeConfig: true,
+            },
             orderBy: { createdAt: "desc" },
             take: 5,
           },

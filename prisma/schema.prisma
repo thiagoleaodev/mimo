@@ -88,12 +88,35 @@ model Event {
 
   owner User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   gifts Gift[]
+  themeConfig EventThemeConfig?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([ownerId])
   @@index([visibility])
+}
+
+model EventThemeConfig {
+  id String @id @default(uuid())
+
+  eventId String @unique
+
+  theme String @default("minimal")
+
+  primaryColor   String?
+  secondaryColor String?
+  accentColor    String?
+
+  coverImageUrl String?
+
+  backgroundType  String?
+  backgroundValue String?
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Gift {

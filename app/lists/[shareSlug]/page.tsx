@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
+import { getEventThemeStyles } from "@/lib/event-theme";
 import { prisma } from "@/services/prisma";
 import type { Prisma } from "@/services/generated/prisma/client";
 
@@ -30,6 +31,7 @@ type SharedEvent = Prisma.EventGetPayload<{
         };
       };
     };
+    themeConfig: true;
   };
 }>;
 
@@ -108,6 +110,7 @@ export default async function SharedGiftListPage({
           },
           orderBy: { createdAt: "desc" },
         },
+        themeConfig: true,
       },
     });
   } catch (error) {
@@ -161,10 +164,11 @@ export default async function SharedGiftListPage({
     reservedByName: gift.reservation?.owner.name ?? gift.reservation?.owner.email ?? null,
     title: gift.title,
   }));
+  const themeStyles = getEventThemeStyles(event.themeConfig);
 
   return (
-    <main className="min-h-dvh flex-1 bg-background">
-      <header className="sticky top-0 z-30 border-b bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
+    <main className="min-h-dvh flex-1 bg-background" style={themeStyles}>
+      <header className="sticky top-0 z-30 border-b bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-medium text-primary-foreground">
@@ -201,8 +205,22 @@ export default async function SharedGiftListPage({
       </header>
 
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6">
-        <section className="grid gap-3">
-          <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">
+        {event.themeConfig?.coverImageUrl ? (
+          <section className="overflow-hidden rounded-lg border bg-card shadow-sm">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              alt=""
+              className="aspect-[16/7] w-full object-cover"
+              src={event.themeConfig.coverImageUrl}
+            />
+          </section>
+        ) : null}
+
+        <section className="grid gap-3 rounded-lg border bg-background/90 p-4 shadow-sm backdrop-blur sm:p-6">
+          <span className="w-fit rounded-full bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground">
+            Lista de presentes
+          </span>
+          <h1 className="text-2xl font-semibold leading-tight text-foreground sm:text-3xl">
             {event.title}
           </h1>
           {event.description ? (
@@ -210,17 +228,15 @@ export default async function SharedGiftListPage({
               {event.description}
             </p>
           ) : null}
-          <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+          <div className="flex flex-wrap gap-3 text-sm text-foreground">
             <span className="inline-flex items-center gap-2">
-              <CalendarDays className="size-4" />
+              <CalendarDays className="size-4 text-primary" />
               {formatEventDate(event.date)}
             </span>
-            {event.location ? (
-              <span className="inline-flex items-center gap-2">
-                <MapPin className="size-4" />
-                {event.location}
-              </span>
-            ) : null}
+            <span className="inline-flex items-center gap-2">
+              <MapPin className="size-4 text-primary" />
+              {event.location ?? "Local a definir"}
+            </span>
           </div>
         </section>
 
