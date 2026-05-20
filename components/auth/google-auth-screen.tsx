@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
 
 function GoogleIcon() {
@@ -41,9 +42,11 @@ export function GoogleAuthScreen() {
       <section className="grid w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-sm md:grid-cols-[1fr_380px]">
         <div className="flex min-h-[260px] flex-col justify-between bg-primary p-6 text-primary-foreground sm:p-8 md:min-h-[520px]">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <span className="flex size-8 items-center justify-center rounded-md bg-primary-foreground text-primary">
-              M
-            </span>
+            <BrandLogo
+              alt=""
+              className="bg-primary-foreground"
+              priority
+            />
             Mimo
           </div>
 

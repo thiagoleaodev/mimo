@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { CalendarDays, MapPin, UserRound } from "lucide-react";
 
+import { BrandLogo } from "@/components/brand-logo";
 import { SharedGiftListView } from "@/components/lists/shared-gift-list-view";
 import {
   Card,
@@ -171,9 +172,7 @@ export default async function SharedGiftListPage({
       <header className="sticky top-0 z-30 border-b bg-background/90 px-4 py-3 backdrop-blur sm:px-6">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary text-sm font-medium text-primary-foreground">
-              M
-            </span>
+            <BrandLogo priority />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{event.title}</p>
               <p className="truncate text-xs text-muted-foreground">

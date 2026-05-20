@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { GoogleAuthScreen } from "@/components/auth/google-auth-screen";
+import { BrandLogo } from "@/components/brand-logo";
 import { CreateEventDialog } from "@/components/events/create-event-dialog";
 import { EventThemePreview } from "@/components/events/event-theme-preview";
 import { Button } from "@/components/ui/button";
@@ -70,9 +71,7 @@ function AuthenticatedHome({
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-sm font-medium">
-            <span className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-              M
-            </span>
+            <BrandLogo alt="" priority />
             Mimo
           </div>
 
