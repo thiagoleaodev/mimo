@@ -9,6 +9,7 @@ import {
   Unlock,
 } from "lucide-react";
 
+import { EditEventDialog } from "@/components/events/edit-event-dialog";
 import { EventThemeDialog } from "@/components/events/event-theme-dialog";
 import { EventThemePreview } from "@/components/events/event-theme-preview";
 import { ShareListDialog } from "@/components/events/share-list-dialog";
@@ -63,6 +64,20 @@ function formatPrice(price: unknown) {
     currency: "BRL",
     style: "currency",
   }).format(Number(price));
+}
+
+function formatDateTimeLocal(date: Date | null) {
+  if (!date) {
+    return null;
+  }
+
+  const pad = (value: number) => value.toString().padStart(2, "0");
+
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+  ].join("-") + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export default async function GiftListPage({
@@ -184,7 +199,21 @@ export default async function GiftListPage({
             <CardHeader>
               <div className="grid gap-4 sm:grid-cols-[1fr_9rem] sm:items-start">
                 <div className="min-w-0">
-                  <CardTitle className="text-2xl">{event.title}</CardTitle>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <CardTitle className="text-2xl">{event.title}</CardTitle>
+                    {isOwner ? (
+                      <EditEventDialog
+                        event={{
+                          date: formatDateTimeLocal(event.date),
+                          description: event.description,
+                          id: event.id,
+                          location: event.location,
+                          title: event.title,
+                          visibility: event.visibility,
+                        }}
+                      />
+                    ) : null}
+                  </div>
                   <CardDescription className="mt-2">
                     {event.description ??
                       "Lista de presentes compartilhada para este evento."}

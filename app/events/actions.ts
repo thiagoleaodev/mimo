@@ -38,6 +38,10 @@ const eventSchema = z.object({
   }),
 });
 
+const updateEventSchema = eventSchema.extend({
+  eventId: z.string().min(1, "Evento invalido."),
+});
+
 const hexColorSchema = z
   .string()
   .trim()
@@ -78,6 +82,12 @@ const eventThemeSchema = z.object({
 
 export type CreateEventState = {
   errors?: Partial<Record<keyof z.infer<typeof eventSchema>, string>>;
+  message?: string;
+  success?: boolean;
+};
+
+export type UpdateEventState = {
+  errors?: Partial<Record<keyof z.infer<typeof updateEventSchema>, string>>;
   message?: string;
   success?: boolean;
 };
@@ -170,6 +180,92 @@ export async function createEvent(
     message: "Evento criado com sucesso.",
     success: true,
   };
+}
+
+export async function updateEvent(
+  _previousState: UpdateEventState,
+  formData: FormData
+): Promise<UpdateEventState> {
+  const parsed = updateEventSchema.safeParse({
+    eventId: formData.get("eventId"),
+    title: formData.get("title"),
+    description: formData.get("description"),
+    date: formData.get("date"),
+    location: formData.get("location"),
+    visibility: formData.get("visibility"),
+  });
+
+  if (!parsed.success) {
+    return {
+      errors: z.flattenError(parsed.error).fieldErrors as UpdateEventState["errors"],
+      message: "Revise os campos destacados.",
+      success: false,
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return {
+      message: "Faca login com Google para editar o evento.",
+      success: false,
+    };
+  }
+
+  try {
+    const event = await prisma.event.findFirst({
+      where: {
+        id: parsed.data.eventId,
+        owner: {
+          email: user.email,
+        },
+      },
+      select: {
+        id: true,
+        shareSlug: true,
+      },
+    });
+
+    if (!event) {
+      return {
+        message: "Voce nao tem permissao para editar este evento.",
+        success: false,
+      };
+    }
+
+    await prisma.event.update({
+      where: {
+        id: event.id,
+      },
+      data: {
+        date: parsed.data.date ? new Date(parsed.data.date) : null,
+        description: emptyToUndefined(parsed.data.description),
+        location: emptyToUndefined(parsed.data.location),
+        title: parsed.data.title,
+        visibility: parsed.data.visibility,
+      },
+    });
+
+    revalidatePath("/");
+    revalidatePath(`/events/${event.id}/gifts`);
+    revalidatePath(`/lists/${event.shareSlug}`);
+
+    return {
+      message: "Evento atualizado com sucesso.",
+      success: true,
+    };
+  } catch (error) {
+    console.error("Unable to update event", error);
+
+    return {
+      message:
+        "Nao foi possivel conectar ao banco de dados. Verifique a DATABASE_URL.",
+      success: false,
+    };
+  }
 }
 
 export async function updateEventTheme(
