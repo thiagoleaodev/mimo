@@ -6,6 +6,7 @@ export const telegramLogEvents = [
   "USER_CREATED",
   "EVENT_CREATED",
   "EVENT_DELETED",
+  "FEEDBACK_RECEIVED",
   "GIFT_CREATED",
   "GIFT_RESERVED",
   "GIFT_CANCELLED",
