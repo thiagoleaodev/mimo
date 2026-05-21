@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { Prisma } from "@/services/generated/prisma/client";
 import { prisma } from "@/services/prisma";
+import { sendTelegramLog } from "@/services/telegram-logger";
 
 type ReserveGiftResult = {
   message: string;
@@ -57,6 +58,7 @@ export async function reserveGift(formData: FormData) {
         },
       },
       select: {
+        eventId: true,
         id: true,
         reservation: {
           select: {
@@ -73,6 +75,10 @@ export async function reserveGift(formData: FormData) {
       } satisfies ReserveGiftResult;
     }
 
+    const existingOwner = await prisma.user.findUnique({
+      where: { email: user.email },
+      select: { id: true },
+    });
     const owner = await prisma.user.upsert({
       where: { email: user.email },
       create: {
@@ -86,11 +92,37 @@ export async function reserveGift(formData: FormData) {
       },
     });
 
-    await prisma.giftReservation.create({
+    if (!existingOwner) {
+      await sendTelegramLog({
+        event: "USER_CREATED",
+        level: "INFO",
+        message: "Usuario criado ao reservar um presente",
+        metadata: {
+          userId: owner.id,
+        },
+        route: `/lists/${parsed.data.shareSlug}`,
+        user: user.email,
+      });
+    }
+
+    const reservation = await prisma.giftReservation.create({
       data: {
         giftId: gift.id,
         ownerId: owner.id,
       },
+    });
+
+    await sendTelegramLog({
+      event: "GIFT_RESERVED",
+      level: "INFO",
+      message: "Presente reservado",
+      metadata: {
+        eventId: gift.eventId,
+        giftId: gift.id,
+        reservationId: reservation.id,
+      },
+      route: `/lists/${parsed.data.shareSlug}`,
+      user: user.email,
     });
 
     revalidatePath(`/lists/${parsed.data.shareSlug}`);
@@ -111,6 +143,18 @@ export async function reserveGift(formData: FormData) {
     }
 
     console.error("Unable to reserve gift", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao reservar presente",
+      metadata: {
+        error,
+        giftId: parsed.data.giftId,
+        shareSlug: parsed.data.shareSlug,
+      },
+      route: `/lists/${parsed.data.shareSlug}`,
+      user: user.email,
+    });
 
     return {
       message: "Nao foi possivel reservar agora. Tente novamente.",

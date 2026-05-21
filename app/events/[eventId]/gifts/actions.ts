@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/services/prisma";
+import { sendTelegramLog } from "@/services/telegram-logger";
 
 const optionalUrl = z
   .string()
@@ -1063,6 +1064,16 @@ export async function extractProduct(
     return await extractMercadoLivreProduct(parsed.data.productUrl);
   } catch (error) {
     console.error("Unable to extract product", error);
+    await sendTelegramLog({
+      event: "UNKNOWN_ERROR",
+      level: "WARN",
+      message: "Erro ao extrair dados do produto",
+      metadata: {
+        error,
+        store: parsed.data.store,
+      },
+      route: `/events/${formData.get("eventId") ?? "unknown"}/gifts`,
+    });
 
     return {
       message: "Nao foi possivel consultar a loja agora.",
@@ -1141,7 +1152,7 @@ export async function createGift(
       };
     }
 
-    await prisma.gift.create({
+    const gift = await prisma.gift.create({
       data: {
         description: emptyToUndefined(parsed.data.description),
         eventId: event.id,
@@ -1151,8 +1162,33 @@ export async function createGift(
         title: parsed.data.title,
       },
     });
+
+    await sendTelegramLog({
+      event: "GIFT_CREATED",
+      level: "INFO",
+      message: "Presente criado",
+      metadata: {
+        eventId: event.id,
+        giftId: gift.id,
+        hasProductUrl: Boolean(affiliateProductUrl),
+        hasPrice: Boolean(gift.price),
+      },
+      route: `/events/${event.id}/gifts`,
+      user: user.email,
+    });
   } catch (error) {
     console.error("Unable to create gift", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao criar presente",
+      metadata: {
+        error,
+        eventId: parsed.data.eventId,
+      },
+      route: `/events/${parsed.data.eventId}/gifts`,
+      user: user.email,
+    });
 
     return {
       message:
@@ -1218,5 +1254,16 @@ export async function deleteGift(formData: FormData) {
     revalidatePath(`/events/${gift.eventId}/gifts`);
   } catch (error) {
     console.error("Unable to delete gift", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao remover presente",
+      metadata: {
+        error,
+        giftId: giftId.data,
+      },
+      route: "/events/[eventId]/gifts",
+      user: user.email,
+    });
   }
 }

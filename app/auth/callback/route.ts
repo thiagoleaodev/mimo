@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
 import { createClient } from "@/lib/supabase/server";
+import { sendTelegramLog } from "@/services/telegram-logger";
 
 export async function GET(request: Request) {
   const { origin, searchParams } = new URL(request.url);
@@ -22,6 +23,27 @@ export async function GET(request: Request) {
 
       return NextResponse.redirect(`https://${forwardedHost}${next}`);
     }
+
+    await sendTelegramLog({
+      event: "AUTH_ERROR",
+      level: "WARN",
+      message: "Erro ao trocar codigo OAuth por sessao",
+      metadata: {
+        error,
+        next,
+      },
+      route: "/auth/callback",
+    });
+  } else {
+    await sendTelegramLog({
+      event: "AUTH_ERROR",
+      level: "WARN",
+      message: "Callback OAuth sem codigo",
+      metadata: {
+        next,
+      },
+      route: "/auth/callback",
+    });
   }
 
   return NextResponse.redirect(`${origin}/auth/auth-code-error`);

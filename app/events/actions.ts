@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { prisma } from "@/services/prisma";
@@ -9,6 +10,7 @@ import {
   backgroundTypeOptions,
   eventThemeOptions,
 } from "@/lib/event-theme";
+import { sendTelegramLog } from "@/services/telegram-logger";
 
 const eventSchema = z.object({
   title: z
@@ -39,6 +41,10 @@ const eventSchema = z.object({
 });
 
 const updateEventSchema = eventSchema.extend({
+  eventId: z.string().min(1, "Evento invalido."),
+});
+
+const deleteEventSchema = z.object({
   eventId: z.string().min(1, "Evento invalido."),
 });
 
@@ -141,6 +147,10 @@ export async function createEvent(
   };
 
   try {
+    const existingOwner = await prisma.user.findUnique({
+      where: { email: user.email },
+      select: { id: true },
+    });
     const owner = await prisma.user.upsert({
       where: { email: user.email },
       create: {
@@ -154,7 +164,20 @@ export async function createEvent(
       },
     });
 
-    await prisma.event.create({
+    if (!existingOwner) {
+      await sendTelegramLog({
+        event: "USER_CREATED",
+        level: "INFO",
+        message: "Usuario criado ao iniciar um evento",
+        metadata: {
+          userId: owner.id,
+        },
+        route: "/",
+        user: user.email,
+      });
+    }
+
+    const event = await prisma.event.create({
       data: {
         date: parsed.data.date ? new Date(parsed.data.date) : undefined,
         description: emptyToUndefined(parsed.data.description),
@@ -164,8 +187,30 @@ export async function createEvent(
         visibility: parsed.data.visibility,
       },
     });
+
+    await sendTelegramLog({
+      event: "EVENT_CREATED",
+      level: "INFO",
+      message: "Evento criado",
+      metadata: {
+        eventId: event.id,
+        visibility: event.visibility,
+      },
+      route: "/",
+      user: user.email,
+    });
   } catch (error) {
     console.error("Unable to create event", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao criar evento",
+      metadata: {
+        error,
+      },
+      route: "/",
+      user: user.email,
+    });
 
     return {
       message:
@@ -259,6 +304,17 @@ export async function updateEvent(
     };
   } catch (error) {
     console.error("Unable to update event", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao atualizar evento",
+      metadata: {
+        error,
+        eventId: parsed.data.eventId,
+      },
+      route: `/events/${parsed.data.eventId}/gifts`,
+      user: user.email,
+    });
 
     return {
       message:
@@ -266,6 +322,89 @@ export async function updateEvent(
       success: false,
     };
   }
+}
+
+export async function deleteEvent(formData: FormData) {
+  const parsed = deleteEventSchema.safeParse({
+    eventId: formData.get("eventId"),
+  });
+
+  if (!parsed.success) {
+    return;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return;
+  }
+
+  let deletedShareSlug: string | null = null;
+
+  try {
+    const event = await prisma.event.findFirst({
+      where: {
+        id: parsed.data.eventId,
+        owner: {
+          email: user.email,
+        },
+      },
+      select: {
+        id: true,
+        shareSlug: true,
+      },
+    });
+
+    if (!event) {
+      return;
+    }
+
+    await prisma.event.delete({
+      where: {
+        id: event.id,
+      },
+    });
+
+    deletedShareSlug = event.shareSlug;
+
+    await sendTelegramLog({
+      event: "EVENT_DELETED",
+      level: "INFO",
+      message: "Evento removido",
+      metadata: {
+        eventId: event.id,
+      },
+      route: `/events/${event.id}/gifts`,
+      user: user.email,
+    });
+  } catch (error) {
+    console.error("Unable to delete event", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao remover evento",
+      metadata: {
+        error,
+        eventId: parsed.data.eventId,
+      },
+      route: `/events/${parsed.data.eventId}/gifts`,
+      user: user.email,
+    });
+
+    return;
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/events/${parsed.data.eventId}/gifts`);
+
+  if (deletedShareSlug) {
+    revalidatePath(`/lists/${deletedShareSlug}`);
+  }
+
+  redirect("/");
 }
 
 export async function updateEventTheme(
@@ -359,6 +498,17 @@ export async function updateEventTheme(
     };
   } catch (error) {
     console.error("Unable to update event theme", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao atualizar identidade visual do evento",
+      metadata: {
+        error,
+        eventId: parsed.data.eventId,
+      },
+      route: `/events/${parsed.data.eventId}/gifts`,
+      user: user.email,
+    });
 
     return {
       message:

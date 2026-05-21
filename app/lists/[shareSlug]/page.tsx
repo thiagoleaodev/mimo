@@ -13,6 +13,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getEventThemeStyles } from "@/lib/event-theme";
 import { prisma } from "@/services/prisma";
+import { sendTelegramLog } from "@/services/telegram-logger";
 import type { Prisma } from "@/services/generated/prisma/client";
 
 type SharedEvent = Prisma.EventGetPayload<{
@@ -117,6 +118,17 @@ export default async function SharedGiftListPage({
   } catch (error) {
     databaseError = true;
     console.error("Unable to load shared list", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao carregar lista compartilhada",
+      metadata: {
+        error,
+        shareSlug,
+      },
+      route: `/lists/${shareSlug}`,
+      user: user.email,
+    });
   }
 
   if (databaseError) {

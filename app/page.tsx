@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/services/prisma";
+import { sendTelegramLog } from "@/services/telegram-logger";
 import type { Prisma } from "@/services/generated/prisma/client";
 
 type RecentEvent = Prisma.EventGetPayload<{
@@ -233,6 +234,16 @@ export default async function Home() {
     } catch (error) {
       databaseError = true;
       console.error("Unable to load user events", error);
+      await sendTelegramLog({
+        event: "DATABASE_ERROR",
+        level: "ERROR",
+        message: "Erro ao carregar eventos do usuario",
+        metadata: {
+          error,
+        },
+        route: "/",
+        user: user.email,
+      });
     }
   }
 

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getSafeRedirectPath } from "@/lib/auth/redirect";
 import { createClient } from "@/lib/supabase/server";
+import { sendTelegramLog } from "@/services/telegram-logger";
 
 export async function GET(request: NextRequest) {
   const { origin, searchParams } = request.nextUrl;
@@ -19,6 +20,18 @@ export async function GET(request: NextRequest) {
   });
 
   if (error || !data.url) {
+    await sendTelegramLog({
+      event: "AUTH_ERROR",
+      level: "WARN",
+      message: "Erro ao iniciar login com Google",
+      metadata: {
+        error,
+        hasRedirectUrl: Boolean(data.url),
+        next,
+      },
+      route: "/auth/sign-in/google",
+    });
+
     const loginUrl = new URL("/login", origin);
     loginUrl.searchParams.set("error", "oauth");
 
