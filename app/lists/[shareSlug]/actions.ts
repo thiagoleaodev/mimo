@@ -13,6 +13,8 @@ type ReserveGiftResult = {
   status: "error" | "success";
 };
 
+type GiftReservationResult = ReserveGiftResult;
+
 export async function reserveGift(formData: FormData) {
   const parsed = z
     .object({
@@ -160,5 +162,113 @@ export async function reserveGift(formData: FormData) {
       message: "Nao foi possivel reservar agora. Tente novamente.",
       status: "error",
     } satisfies ReserveGiftResult;
+  }
+}
+
+export async function cancelGiftReservation(formData: FormData) {
+  const parsed = z
+    .object({
+      giftId: z.string().min(1),
+      shareSlug: z.string().min(1),
+    })
+    .safeParse({
+      giftId: formData.get("giftId"),
+      shareSlug: formData.get("shareSlug"),
+    });
+
+  if (!parsed.success) {
+    return {
+      message: "Nao foi possivel identificar a reserva.",
+      status: "error",
+    } satisfies GiftReservationResult;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return {
+      message: "Entre novamente para cancelar esta reserva.",
+      status: "error",
+    } satisfies GiftReservationResult;
+  }
+
+  try {
+    const reservation = await prisma.giftReservation.findFirst({
+      where: {
+        giftId: parsed.data.giftId,
+        gift: {
+          event: {
+            shareSlug: parsed.data.shareSlug,
+          },
+        },
+        owner: {
+          email: user.email,
+        },
+      },
+      select: {
+        gift: {
+          select: {
+            eventId: true,
+          },
+        },
+        id: true,
+      },
+    });
+
+    if (!reservation) {
+      return {
+        message: "Voce nao pode cancelar esta reserva.",
+        status: "error",
+      } satisfies GiftReservationResult;
+    }
+
+    await prisma.giftReservation.delete({
+      where: {
+        id: reservation.id,
+      },
+    });
+
+    await sendTelegramLog({
+      event: "GIFT_CANCELLED",
+      level: "INFO",
+      message: "Reserva de presente cancelada",
+      metadata: {
+        eventId: reservation.gift.eventId,
+        giftId: parsed.data.giftId,
+        reservationId: reservation.id,
+      },
+      route: `/lists/${parsed.data.shareSlug}`,
+      user: user.email,
+    });
+
+    revalidatePath(`/lists/${parsed.data.shareSlug}`);
+    revalidatePath(`/events/${reservation.gift.eventId}/gifts`);
+
+    return {
+      message: "Reserva cancelada.",
+      status: "success",
+    } satisfies GiftReservationResult;
+  } catch (error) {
+    console.error("Unable to cancel gift reservation", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao cancelar reserva de presente",
+      metadata: {
+        error,
+        giftId: parsed.data.giftId,
+        shareSlug: parsed.data.shareSlug,
+      },
+      route: `/lists/${parsed.data.shareSlug}`,
+      user: user.email,
+    });
+
+    return {
+      message: "Nao foi possivel cancelar agora. Tente novamente.",
+      status: "error",
+    } satisfies GiftReservationResult;
   }
 }

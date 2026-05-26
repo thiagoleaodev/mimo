@@ -14,7 +14,7 @@ import { EventThemeDialog } from "@/components/events/event-theme-dialog";
 import { EventThemePreview } from "@/components/events/event-theme-preview";
 import { ShareListDialog } from "@/components/events/share-list-dialog";
 import { CreateGiftDialog } from "@/components/gifts/create-gift-dialog";
-import { DeleteGiftDialog } from "@/components/gifts/delete-gift-dialog";
+import { GiftActionsMenu } from "@/components/gifts/gift-actions-menu";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -332,10 +332,10 @@ export default async function GiftListPage({
                             </Button>
                           ) : null}
                           {isOwner ? (
-                            <DeleteGiftDialog
-                              disabled={Boolean(gift.reservation)}
+                            <GiftActionsMenu
                               giftId={gift.id}
                               giftTitle={gift.title}
+                              isReserved={Boolean(gift.reservation)}
                             />
                           ) : null}
                         </div>

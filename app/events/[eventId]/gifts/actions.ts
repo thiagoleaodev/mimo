@@ -1233,15 +1233,10 @@ export async function deleteGift(formData: FormData) {
       },
       select: {
         eventId: true,
-        reservation: {
-          select: {
-            id: true,
-          },
-        },
       },
     });
 
-    if (!gift || gift.reservation) {
+    if (!gift) {
       return;
     }
 
@@ -1258,6 +1253,90 @@ export async function deleteGift(formData: FormData) {
       event: "DATABASE_ERROR",
       level: "ERROR",
       message: "Erro ao remover presente",
+      metadata: {
+        error,
+        giftId: giftId.data,
+      },
+      route: "/events/[eventId]/gifts",
+      user: user.email,
+    });
+  }
+}
+
+export async function cancelGiftReservationAsOwner(formData: FormData) {
+  const giftId = z.string().min(1).safeParse(formData.get("giftId"));
+
+  if (!giftId.success) {
+    return;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return;
+  }
+
+  try {
+    const gift = await prisma.gift.findFirst({
+      where: {
+        id: giftId.data,
+        event: {
+          owner: {
+            email: user.email,
+          },
+        },
+      },
+      select: {
+        event: {
+          select: {
+            id: true,
+            shareSlug: true,
+          },
+        },
+        reservation: {
+          select: {
+            id: true,
+            ownerId: true,
+          },
+        },
+      },
+    });
+
+    if (!gift?.reservation) {
+      return;
+    }
+
+    await prisma.giftReservation.delete({
+      where: {
+        id: gift.reservation.id,
+      },
+    });
+
+    await sendTelegramLog({
+      event: "GIFT_CANCELLED",
+      level: "INFO",
+      message: "Reserva cancelada pelo criador do evento",
+      metadata: {
+        eventId: gift.event.id,
+        giftId: giftId.data,
+        reservationId: gift.reservation.id,
+        reservationOwnerId: gift.reservation.ownerId,
+      },
+      route: `/events/${gift.event.id}/gifts`,
+      user: user.email,
+    });
+
+    revalidatePath(`/events/${gift.event.id}/gifts`);
+    revalidatePath(`/lists/${gift.event.shareSlug}`);
+  } catch (error) {
+    console.error("Unable to cancel gift reservation as owner", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao cancelar reserva como criador do evento",
       metadata: {
         error,
         giftId: giftId.data,

@@ -6,7 +6,10 @@ import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { Gift, Search, UserRound } from "lucide-react";
 
-import { reserveGift } from "@/app/lists/[shareSlug]/actions";
+import {
+  cancelGiftReservation,
+  reserveGift,
+} from "@/app/lists/[shareSlug]/actions";
 import { Confetti, type ConfettiRef } from "@/components/ui/confetti";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,7 +38,15 @@ function formatPrice(price: string | null) {
   }).format(Number(price));
 }
 
-function ReserveSubmitButton() {
+function GiftSubmitButton({
+  label,
+  pendingLabel,
+  variant = "default",
+}: {
+  label: string;
+  pendingLabel: string;
+  variant?: "default" | "destructive";
+}) {
   const { pending } = useFormStatus();
 
   return (
@@ -44,8 +55,9 @@ function ReserveSubmitButton() {
       disabled={pending}
       size="lg"
       type="submit"
+      variant={variant}
     >
-      {pending ? "Reservando..." : "Reservar"}
+      {pending ? pendingLabel : label}
     </Button>
   );
 }
@@ -99,6 +111,12 @@ export function SharedGiftListView({
       return;
     }
 
+    router.refresh();
+  }
+
+  async function handleCancelGiftReservation(formData: FormData) {
+    const result = await cancelGiftReservation(formData);
+    setFeedback(result);
     router.refresh();
   }
 
@@ -223,21 +241,34 @@ export function SharedGiftListView({
                 </article>
 
                 {gift.reserved ? (
-                  <Button
-                    className="h-11 w-full text-xs sm:text-sm"
-                    disabled
-                    size="lg"
-                    variant="outline"
-                  >
-                    {gift.reservedByCurrentUser
-                      ? "Reservado por voce"
-                      : "Reservado"}
-                  </Button>
+                  gift.reservedByCurrentUser ? (
+                    <form action={handleCancelGiftReservation} className="w-full">
+                      <input name="giftId" type="hidden" value={gift.id} />
+                      <input name="shareSlug" type="hidden" value={shareSlug} />
+                      <GiftSubmitButton
+                        label="Cancelar reserva"
+                        pendingLabel="Cancelando..."
+                        variant="destructive"
+                      />
+                    </form>
+                  ) : (
+                    <Button
+                      className="h-11 w-full text-xs sm:text-sm"
+                      disabled
+                      size="lg"
+                      variant="outline"
+                    >
+                      Reservado
+                    </Button>
+                  )
                 ) : (
                   <form action={handleReserveGift} className="w-full">
                     <input name="giftId" type="hidden" value={gift.id} />
                     <input name="shareSlug" type="hidden" value={shareSlug} />
-                    <ReserveSubmitButton />
+                    <GiftSubmitButton
+                      label="Reservar"
+                      pendingLabel="Reservando..."
+                    />
                   </form>
                 )}
               </div>
