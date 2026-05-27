@@ -1684,6 +1684,91 @@ export async function deleteGift(formData: FormData) {
   }
 }
 
+export async function reserveGiftAsOwner(formData: FormData) {
+  const giftId = z.string().min(1).safeParse(formData.get("giftId"));
+
+  if (!giftId.success) {
+    return;
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return;
+  }
+
+  try {
+    const gift = await prisma.gift.findFirst({
+      where: {
+        id: giftId.data,
+        event: {
+          owner: {
+            email: user.email,
+          },
+        },
+      },
+      select: {
+        event: {
+          select: {
+            id: true,
+            ownerId: true,
+            shareSlug: true,
+          },
+        },
+        reservation: {
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+
+    if (!gift || gift.reservation) {
+      return;
+    }
+
+    const reservation = await prisma.giftReservation.create({
+      data: {
+        giftId: giftId.data,
+        ownerId: gift.event.ownerId,
+      },
+    });
+
+    await sendTelegramLog({
+      event: "GIFT_RESERVED",
+      level: "INFO",
+      message: "Presente marcado como reservado pelo criador do evento",
+      metadata: {
+        eventId: gift.event.id,
+        giftId: giftId.data,
+        reservationId: reservation.id,
+      },
+      route: `/events/${gift.event.id}/gifts`,
+      user: user.email,
+    });
+
+    revalidatePath(`/events/${gift.event.id}/gifts`);
+    revalidatePath(`/lists/${gift.event.shareSlug}`);
+    revalidatePath("/");
+  } catch (error) {
+    console.error("Unable to reserve gift as owner", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao marcar presente como reservado pelo criador do evento",
+      metadata: {
+        error,
+        giftId: giftId.data,
+      },
+      route: "/events/[eventId]/gifts",
+      user: user.email,
+    });
+  }
+}
+
 export async function cancelGiftReservationAsOwner(formData: FormData) {
   const giftId = z.string().min(1).safeParse(formData.get("giftId"));
 

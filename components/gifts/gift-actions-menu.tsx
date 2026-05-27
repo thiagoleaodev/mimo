@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { CircleX, MoreHorizontal, Trash2 } from "lucide-react";
+import { CheckCircle2, CircleX, MoreHorizontal, Trash2 } from "lucide-react";
 
 import {
   cancelGiftReservationAsOwner,
   deleteGift,
+  reserveGiftAsOwner,
 } from "@/app/events/[eventId]/gifts/actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +30,7 @@ export function GiftActionsMenu({
 }) {
   const [cancelReservationOpen, setCancelReservationOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [reserveOpen, setReserveOpen] = useState(false);
 
   return (
     <>
@@ -49,13 +51,21 @@ export function GiftActionsMenu({
             <MenuPrimitive.Popup className="z-50 grid min-w-48 gap-1 rounded-lg border bg-popover p-1 text-sm text-popover-foreground shadow-lg outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
               {isReserved ? (
                 <MenuPrimitive.Item
-                  className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-2 text-destructive outline-none data-highlighted:bg-destructive/10"
+                  className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-2 outline-none data-highlighted:bg-primary/10"
                   onClick={() => setCancelReservationOpen(true)}
                 >
                   <CircleX className="size-4" />
-                  Cancelar reserva
+                  Marcar como disponivel
                 </MenuPrimitive.Item>
-              ) : null}
+              ) : (
+                <MenuPrimitive.Item
+                  className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-2 outline-none data-highlighted:bg-primary/10"
+                  onClick={() => setReserveOpen(true)}
+                >
+                  <CheckCircle2 className="size-4" />
+                  Marcar como reservado
+                </MenuPrimitive.Item>
+              )}
               <MenuPrimitive.Item
                 className="flex cursor-default items-center gap-2 rounded-md px-2.5 py-2 text-destructive outline-none data-highlighted:bg-destructive/10"
                 onClick={() => setDeleteOpen(true)}
@@ -74,7 +84,7 @@ export function GiftActionsMenu({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Cancelar reserva?</DialogTitle>
+            <DialogTitle>Marcar como disponivel?</DialogTitle>
             <DialogDescription>
               Esta acao libera o presente {giftTitle} para que outro convidado
               possa reservar.
@@ -91,9 +101,38 @@ export function GiftActionsMenu({
             </Button>
             <form action={cancelGiftReservationAsOwner}>
               <input name="giftId" type="hidden" value={giftId} />
-              <Button type="submit" variant="destructive">
+              <Button type="submit">
                 <CircleX />
-                Cancelar reserva
+                Marcar disponivel
+              </Button>
+            </form>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reserveOpen} onOpenChange={setReserveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Marcar como reservado?</DialogTitle>
+            <DialogDescription>
+              Esta acao reserva o presente {giftTitle} em nome do criador do
+              evento e impede que convidados reservem o mesmo item.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              onClick={() => setReserveOpen(false)}
+              type="button"
+              variant="outline"
+            >
+              Cancelar
+            </Button>
+            <form action={reserveGiftAsOwner}>
+              <input name="giftId" type="hidden" value={giftId} />
+              <Button type="submit">
+                <CheckCircle2 />
+                Marcar reservado
               </Button>
             </form>
           </DialogFooter>
