@@ -72,6 +72,10 @@ const giftSchema = z.object({
     .max(120, "Use no maximo 120 caracteres."),
 });
 
+const giftCsvRowSchema = giftSchema
+  .omit({ eventId: true })
+  .extend({ productUrl: optionalUrl });
+
 const productExtractionSchema = z.object({
   productUrl: z
     .string()
@@ -84,6 +88,16 @@ const productExtractionSchema = z.object({
 
 export type CreateGiftState = {
   errors?: Partial<Record<keyof z.infer<typeof giftSchema>, string>>;
+  message?: string;
+  success?: boolean;
+};
+
+export type ImportGiftCsvState = {
+  errors?: {
+    csvFile?: string;
+    rows?: string[];
+  };
+  importedCount?: number;
   message?: string;
   success?: boolean;
 };
@@ -110,6 +124,225 @@ function normalizePrice(value?: string) {
   }
 
   return value.replace(",", ".");
+}
+
+function normalizeCsvProductUrl(value?: string) {
+  const productUrl = emptyToUndefined(value);
+
+  if (!productUrl) {
+    return undefined;
+  }
+
+  return buildAffiliateProductUrl(productUrl) ?? productUrl;
+}
+
+function detectCsvDelimiter(text: string) {
+  const firstLine = text.split(/\r?\n/, 1)[0] ?? "";
+  const commaCount = (firstLine.match(/,/g) ?? []).length;
+  const semicolonCount = (firstLine.match(/;/g) ?? []).length;
+
+  return semicolonCount > commaCount ? ";" : ",";
+}
+
+function parseCsvRecords(text: string) {
+  const delimiter = detectCsvDelimiter(text);
+  const normalizedText = text.replace(/^\uFEFF/, "");
+  const records: Array<{ cells: string[]; line: number }> = [];
+  let cells: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  let line = 1;
+  let recordLine = 1;
+  let index = 0;
+
+  function pushRecord() {
+    const recordCells = [...cells, field].map((cell) => cell.trim());
+
+    if (recordCells.some((cell) => cell.length > 0)) {
+      records.push({
+        cells: recordCells,
+        line: recordLine,
+      });
+    }
+
+    cells = [];
+    field = "";
+  }
+
+  while (index < normalizedText.length) {
+    const char = normalizedText[index];
+    const nextChar = normalizedText[index + 1];
+
+    if (inQuotes) {
+      if (char === '"' && nextChar === '"') {
+        field += '"';
+        index += 2;
+        continue;
+      }
+
+      if (char === '"') {
+        inQuotes = false;
+        index += 1;
+        continue;
+      }
+
+      if (char === "\r" || char === "\n") {
+        field += "\n";
+        line += 1;
+        index += char === "\r" && nextChar === "\n" ? 2 : 1;
+        continue;
+      }
+
+      field += char;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === delimiter) {
+      cells.push(field);
+      field = "";
+      index += 1;
+      continue;
+    }
+
+    if (char === "\r" || char === "\n") {
+      pushRecord();
+      line += 1;
+      recordLine = line;
+      index += char === "\r" && nextChar === "\n" ? 2 : 1;
+      continue;
+    }
+
+    field += char;
+    index += 1;
+  }
+
+  pushRecord();
+
+  return {
+    errors: inQuotes ? ["Existe uma aspas sem fechamento no CSV."] : [],
+    records,
+  };
+}
+
+function normalizeCsvHeader(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function getGiftFieldFromCsvHeader(header: string) {
+  const normalizedHeader = normalizeCsvHeader(header);
+  const aliases: Record<string, keyof z.infer<typeof giftCsvRowSchema>> = {
+    descricao: "description",
+    description: "description",
+    detalhes: "description",
+    image: "imageUrl",
+    imagem: "imageUrl",
+    "image url": "imageUrl",
+    imageurl: "imageUrl",
+    link: "productUrl",
+    "link da imagem": "imageUrl",
+    "link do produto": "productUrl",
+    nome: "title",
+    "nome do presente": "title",
+    observacoes: "description",
+    preco: "price",
+    presente: "title",
+    price: "price",
+    "product url": "productUrl",
+    producturl: "productUrl",
+    produto: "productUrl",
+    titulo: "title",
+    title: "title",
+    url: "productUrl",
+    valor: "price",
+  };
+
+  return aliases[normalizedHeader];
+}
+
+function parseGiftCsv(text: string) {
+  const parsedCsv = parseCsvRecords(text);
+
+  if (parsedCsv.errors.length > 0) {
+    return {
+      errors: parsedCsv.errors,
+      rows: [],
+    };
+  }
+
+  const [headerRecord, ...rowRecords] = parsedCsv.records;
+
+  if (!headerRecord) {
+    return {
+      errors: ["Envie um CSV com cabecalho e pelo menos uma linha."],
+      rows: [],
+    };
+  }
+
+  const mappedHeaders = headerRecord.cells.map(getGiftFieldFromCsvHeader);
+
+  if (!mappedHeaders.includes("title")) {
+    return {
+      errors: ["Inclua uma coluna title, titulo, nome ou presente."],
+      rows: [],
+    };
+  }
+
+  const rows = rowRecords.map((record) => {
+    const row: Partial<Record<keyof z.infer<typeof giftCsvRowSchema>, string>> =
+      {};
+
+    mappedHeaders.forEach((fieldName, cellIndex) => {
+      if (fieldName && row[fieldName] === undefined) {
+        row[fieldName] = record.cells[cellIndex] ?? "";
+      }
+    });
+
+    return {
+      data: row,
+      line: record.line,
+    };
+  });
+
+  return {
+    errors: rows.length > 0 ? [] : ["Inclua pelo menos uma linha de presente."],
+    rows,
+  };
+}
+
+function formatGiftCsvRowErrors(
+  line: number,
+  errors: Partial<Record<keyof z.infer<typeof giftCsvRowSchema>, string[]>>
+) {
+  const fieldLabels: Record<keyof z.infer<typeof giftCsvRowSchema>, string> = {
+    description: "descricao",
+    imageUrl: "imagem",
+    price: "preco",
+    productUrl: "link",
+    title: "nome",
+  };
+  const messages = Object.entries(errors)
+    .flatMap(([fieldName, fieldErrors]) =>
+      (fieldErrors ?? []).map(
+        (fieldError) =>
+          `${fieldLabels[fieldName as keyof z.infer<typeof giftCsvRowSchema>]}: ${fieldError}`
+      )
+    )
+    .join(" ");
+
+  return `Linha ${line}: ${messages}`;
 }
 
 function isMercadoLivreUrl(url: URL) {
@@ -1203,6 +1436,191 @@ export async function createGift(
     message: "Presente adicionado com sucesso.",
     success: true,
   };
+}
+
+export async function importGiftsFromCsv(
+  _previousState: ImportGiftCsvState,
+  formData: FormData
+): Promise<ImportGiftCsvState> {
+  const eventId = z.string().min(1).safeParse(formData.get("eventId"));
+
+  if (!eventId.success) {
+    return {
+      errors: {
+        csvFile: "Evento invalido.",
+      },
+      message: "Nao foi possivel importar os presentes.",
+      success: false,
+    };
+  }
+
+  const csvFile = formData.get("csvFile");
+
+  if (!(csvFile instanceof File) || csvFile.size === 0) {
+    return {
+      errors: {
+        csvFile: "Selecione um arquivo CSV.",
+      },
+      message: "Nao foi possivel importar os presentes.",
+      success: false,
+    };
+  }
+
+  if (csvFile.size > 512 * 1024) {
+    return {
+      errors: {
+        csvFile: "Envie um arquivo com ate 512 KB.",
+      },
+      message: "Nao foi possivel importar os presentes.",
+      success: false,
+    };
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.email) {
+    return {
+      message: "Faca login com Google para importar presentes.",
+      success: false,
+    };
+  }
+
+  try {
+    const event = await prisma.event.findFirst({
+      where: {
+        id: eventId.data,
+        owner: {
+          email: user.email,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!event) {
+      return {
+        message: "Voce nao tem permissao para editar este evento.",
+        success: false,
+      };
+    }
+
+    const csvText = await csvFile.text();
+    const parsedCsv = parseGiftCsv(csvText);
+
+    if (parsedCsv.errors.length > 0) {
+      return {
+        errors: {
+          rows: parsedCsv.errors,
+        },
+        message: "Revise o arquivo CSV.",
+        success: false,
+      };
+    }
+
+    if (parsedCsv.rows.length > 200) {
+      return {
+        errors: {
+          rows: ["Importe no maximo 200 presentes por arquivo."],
+        },
+        message: "Revise o arquivo CSV.",
+        success: false,
+      };
+    }
+
+    const rowErrors: string[] = [];
+    let affiliateLinkCount = 0;
+    const gifts = parsedCsv.rows.flatMap((row) => {
+      const parsed = giftCsvRowSchema.safeParse(row.data);
+
+      if (!parsed.success) {
+        rowErrors.push(
+          formatGiftCsvRowErrors(
+            row.line,
+            z.flattenError(parsed.error).fieldErrors
+          )
+        );
+        return [];
+      }
+
+      const productUrl = emptyToUndefined(parsed.data.productUrl);
+      const savedProductUrl = normalizeCsvProductUrl(parsed.data.productUrl);
+
+      if (productUrl && savedProductUrl !== productUrl) {
+        affiliateLinkCount += 1;
+      }
+
+      return [
+        {
+          description: emptyToUndefined(parsed.data.description),
+          eventId: event.id,
+          imageUrl: emptyToUndefined(parsed.data.imageUrl),
+          price: normalizePrice(parsed.data.price),
+          productUrl: savedProductUrl,
+          title: parsed.data.title,
+        },
+      ];
+    });
+
+    if (rowErrors.length > 0) {
+      return {
+        errors: {
+          rows: rowErrors.slice(0, 20),
+        },
+        message: "Nenhum presente foi importado. Revise as linhas destacadas.",
+        success: false,
+      };
+    }
+
+    const result = await prisma.gift.createMany({
+      data: gifts,
+    });
+
+    await sendTelegramLog({
+      event: "GIFT_CREATED",
+      level: "INFO",
+      message: "Presentes importados por CSV",
+      metadata: {
+        affiliateLinkCount,
+        eventId: event.id,
+        importedCount: result.count,
+      },
+      route: `/events/${event.id}/gifts`,
+      user: user.email,
+    });
+
+    revalidatePath(`/events/${event.id}/gifts`);
+
+    return {
+      importedCount: result.count,
+      message: `${result.count} ${
+        result.count === 1 ? "presente importado" : "presentes importados"
+      } com sucesso.`,
+      success: true,
+    };
+  } catch (error) {
+    console.error("Unable to import gifts from CSV", error);
+    await sendTelegramLog({
+      event: "DATABASE_ERROR",
+      level: "ERROR",
+      message: "Erro ao importar presentes por CSV",
+      metadata: {
+        error,
+        eventId: eventId.data,
+      },
+      route: `/events/${eventId.data}/gifts`,
+      user: user.email,
+    });
+
+    return {
+      message:
+        "Nao foi possivel conectar ao banco de dados. Verifique a DATABASE_URL.",
+      success: false,
+    };
+  }
 }
 
 export async function deleteGift(formData: FormData) {

@@ -15,6 +15,7 @@ import { EventThemePreview } from "@/components/events/event-theme-preview";
 import { ShareListDialog } from "@/components/events/share-list-dialog";
 import { CreateGiftDialog } from "@/components/gifts/create-gift-dialog";
 import { GiftActionsMenu } from "@/components/gifts/gift-actions-menu";
+import { ImportGiftsCsvDialog } from "@/components/gifts/import-gifts-csv-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -201,6 +202,7 @@ export default async function GiftListPage({
                 eventId={event.id}
                 themeConfig={event.themeConfig}
               />
+              <ImportGiftsCsvDialog eventId={event.id} />
               <CreateGiftDialog eventId={event.id} />
             </div>
           ) : null}
@@ -356,7 +358,8 @@ export default async function GiftListPage({
                   Adicione sugestoes para seus convidados reservarem.
                 </p>
                 {isOwner ? (
-                  <div className="mt-4 flex justify-center">
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    <ImportGiftsCsvDialog eventId={event.id} />
                     <CreateGiftDialog eventId={event.id} />
                   </div>
                 ) : null}
