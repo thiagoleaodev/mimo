@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { User } from "@supabase/supabase-js";
 import {
   CalendarDays,
+  CheckCircle2,
   ChevronRight,
   Gift,
   LogOut,
@@ -27,6 +28,16 @@ import type { Prisma } from "@/services/generated/prisma/client";
 
 type RecentEvent = Prisma.EventGetPayload<{
   include: {
+    _count: {
+      select: {
+        gifts: true;
+      };
+    };
+    gifts: {
+      select: {
+        id: true;
+      };
+    };
     themeConfig: true;
   };
 }>;
@@ -54,6 +65,10 @@ function formatEventDate(date: Date | null) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatCount(value: number, singular: string, plural: string) {
+  return `${value} ${value === 1 ? singular : plural}`;
 }
 
 function AuthenticatedHome({
@@ -168,6 +183,24 @@ function AuthenticatedHome({
                           {event.description}
                         </p>
                       ) : null}
+                      <div className="flex flex-wrap gap-2 pt-1 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5">
+                          <Gift className="size-3.5" />
+                          {formatCount(
+                            event._count.gifts,
+                            "presente",
+                            "presentes"
+                          )}
+                        </span>
+                        <span className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5">
+                          <CheckCircle2 className="size-3.5" />
+                          {formatCount(
+                            event.gifts.length,
+                            "reservado",
+                            "reservados"
+                          )}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground sm:justify-end">
                       <div className="grid gap-1">
@@ -222,6 +255,21 @@ export default async function Home() {
         include: {
           events: {
             include: {
+              _count: {
+                select: {
+                  gifts: true,
+                },
+              },
+              gifts: {
+                select: {
+                  id: true,
+                },
+                where: {
+                  reservation: {
+                    isNot: null,
+                  },
+                },
+              },
               themeConfig: true,
             },
             orderBy: { createdAt: "desc" },

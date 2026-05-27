@@ -1431,6 +1431,7 @@ export async function createGift(
   }
 
   revalidatePath(`/events/${parsed.data.eventId}/gifts`);
+  revalidatePath("/");
 
   return {
     message: "Presente adicionado com sucesso.",
@@ -1593,6 +1594,7 @@ export async function importGiftsFromCsv(
     });
 
     revalidatePath(`/events/${event.id}/gifts`);
+    revalidatePath("/");
 
     return {
       importedCount: result.count,
@@ -1665,6 +1667,7 @@ export async function deleteGift(formData: FormData) {
     });
 
     revalidatePath(`/events/${gift.eventId}/gifts`);
+    revalidatePath("/");
   } catch (error) {
     console.error("Unable to delete gift", error);
     await sendTelegramLog({
@@ -1749,6 +1752,7 @@ export async function cancelGiftReservationAsOwner(formData: FormData) {
 
     revalidatePath(`/events/${gift.event.id}/gifts`);
     revalidatePath(`/lists/${gift.event.shareSlug}`);
+    revalidatePath("/");
   } catch (error) {
     console.error("Unable to cancel gift reservation as owner", error);
     await sendTelegramLog({

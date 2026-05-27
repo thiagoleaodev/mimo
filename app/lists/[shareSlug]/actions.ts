@@ -128,6 +128,8 @@ export async function reserveGift(formData: FormData) {
     });
 
     revalidatePath(`/lists/${parsed.data.shareSlug}`);
+    revalidatePath(`/events/${gift.eventId}/gifts`);
+    revalidatePath("/");
 
     return {
       message: "Reserva confirmada.",
@@ -246,6 +248,7 @@ export async function cancelGiftReservation(formData: FormData) {
 
     revalidatePath(`/lists/${parsed.data.shareSlug}`);
     revalidatePath(`/events/${reservation.gift.eventId}/gifts`);
+    revalidatePath("/");
 
     return {
       message: "Reserva cancelada.",
